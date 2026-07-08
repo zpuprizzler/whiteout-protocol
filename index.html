@@ -142,6 +142,8 @@
     color:#fff; text-shadow:0 0 30px rgba(255,255,255,.5);
   }
   #screen .tag { font-size:14px; color:#b8bfae; letter-spacing:3px; text-transform:uppercase; }
+  #online { font-size:13px; font-weight:700; color:#8ce89a; letter-spacing:2px; min-height:17px; }
+  #lOnline { color:#8ce89a; }
   #msg { font-size:17px; color:#e8e8e0; max-width:520px; line-height:1.6; }
   #msg b { color:#ffd54a; }
   .ctl { font-size:12px; color:#8a917e; letter-spacing:1px; }
@@ -188,6 +190,7 @@
 <div id="screen">
   <h1>WHITEOUT PROTOCOL</h1>
   <div class="tag">a top-down extraction game</div>
+  <div id="online"></div>
   <div id="msg">The machines took the valley. Drop in, grab <b>5 salvage</b>,
     and reach the <b>extraction pad</b> — it lands somewhere new every run (watch the minimap).
     Ransack the <b>decayed houses</b> and <b>rusty cars</b> scattered across the valley
@@ -206,6 +209,7 @@
         <div class="lMoney">$<span id="moneyN">0</span></div>
         <div class="lSub" id="lSummary"></div>
         <div class="lSub" id="lMeta"></div>
+        <div class="lSub" id="lOnline"></div>
       </div>
     </div>
     <div class="cTabs" id="lTabs">
@@ -1743,6 +1747,31 @@ function drawMinimap(){
   ctx.fillStyle = '#fff';
   ctx.beginPath(); ctx.arc(ox + player.x*s, oy + player.y*s, 3, 0, Math.PI*2); ctx.fill();
 }
+
+// ---------- live player counter ----------
+// Each open game pings a per-minute bucket once; last completed bucket ≈ players online now.
+const ONLINE_API = 'https://abacus.jasoncameron.dev';
+const ONLINE_NS = 'whiteout-protocol-zpuprizzler';
+let onlineSentBucket = 0, onlineCount = null;
+function renderOnline(){
+  const txt = onlineCount === null ? '' : `● ${onlineCount} playing now`;
+  document.getElementById('online').textContent = txt;
+  document.getElementById('lOnline').textContent = txt;
+}
+function onlineTick(){
+  if (document.visibilityState === 'hidden') return;
+  const bucket = Math.floor(Date.now() / 60000);
+  if (bucket !== onlineSentBucket) {
+    onlineSentBucket = bucket;
+    fetch(`${ONLINE_API}/hit/${ONLINE_NS}/online_${bucket}`).catch(() => {});
+  }
+  fetch(`${ONLINE_API}/get/${ONLINE_NS}/online_${bucket - 1}`)
+    .then(r => r.ok ? r.json() : { value: 0 })
+    .then(d => { onlineCount = Math.max(1, d.value || 0); renderOnline(); })
+    .catch(() => { onlineCount = null; renderOnline(); });
+}
+setInterval(onlineTick, 20000);
+onlineTick();
 
 // ---------- loop ----------
 newGame();
