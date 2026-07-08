@@ -1751,8 +1751,12 @@ function drawMinimap(){
 // ---------- live player counter ----------
 // Each open game pings a per-minute bucket once; last completed bucket ≈ players online now.
 const ONLINE_API = 'https://abacus.jasoncameron.dev';
-const ONLINE_NS = 'whiteout-protocol-zpuprizzler';
+// local/dev copies count in their own namespace so they don't inflate the real number
+const ONLINE_NS = location.hostname.endsWith('github.io')
+  ? 'whiteout-protocol-zpuprizzler'
+  : 'whiteout-protocol-zpuprizzler-dev';
 let onlineSentBucket = 0, onlineCount = null;
+try { onlineSentBucket = +sessionStorage.getItem('wp_online_sent') || 0; } catch(e){}
 function renderOnline(){
   const txt = onlineCount === null ? '' : `● ${onlineCount} playing now`;
   document.getElementById('online').textContent = txt;
@@ -1763,12 +1767,18 @@ function onlineTick(){
   const bucket = Math.floor(Date.now() / 60000);
   if (bucket !== onlineSentBucket) {
     onlineSentBucket = bucket;
+    try { sessionStorage.setItem('wp_online_sent', String(bucket)); } catch(e){}
     fetch(`${ONLINE_API}/hit/${ONLINE_NS}/online_${bucket}`).catch(() => {});
   }
-  fetch(`${ONLINE_API}/get/${ONLINE_NS}/online_${bucket - 1}`)
-    .then(r => r.ok ? r.json() : { value: 0 })
-    .then(d => { onlineCount = Math.max(1, d.value || 0); renderOnline(); })
-    .catch(() => { onlineCount = null; renderOnline(); });
+  // read a 2-minute window so players with slightly-off clocks still see each other
+  Promise.all([bucket - 1, bucket - 2].map(b =>
+    fetch(`${ONLINE_API}/get/${ONLINE_NS}/online_${b}`)
+      .then(r => r.ok ? r.json() : { value: 0 })
+      .catch(() => ({ value: 0 }))
+  )).then(vals => {
+    onlineCount = Math.max(1, ...vals.map(v => v.value || 0));
+    renderOnline();
+  });
 }
 setInterval(onlineTick, 20000);
 onlineTick();
