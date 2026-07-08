@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Whiteout Protocol ⚪</title>
 <style>
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -10,8 +13,18 @@
   body {
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
     background:#1a1d16; color:#fff;
+    overscroll-behavior:none; -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color:transparent;
   }
-  #game { display:block; cursor:crosshair; }
+  #game { display:block; cursor:crosshair; touch-action:none; }
+  #touchUI { position:fixed; top:60px; right:12px; display:flex;
+    flex-direction:column; gap:8px; z-index:13; }
+  #touchUI.hidden { display:none; }
+  #touchUI button {
+    font-family:inherit; font-weight:800; font-size:12px; letter-spacing:1px;
+    background:rgba(0,0,0,.55); color:#fff; border:1px solid rgba(255,255,255,.35);
+    border-radius:10px; padding:11px 14px; touch-action:manipulation;
+  }
   #hud {
     position:fixed; top:14px; left:14px; display:flex; flex-direction:column;
     gap:8px; pointer-events:none; user-select:none;
@@ -157,6 +170,10 @@
 </div>
 <div id="objective">COLLECT SALVAGE <b>0/5</b></div>
 <div id="mute">M mute · P pause · TAB gear</div>
+<div id="touchUI" class="hidden">
+  <button id="tGear">GEAR</button>
+  <button id="tPause">PAUSE</button>
+</div>
 <div id="craftMenu" class="hidden">
   <div class="cPanel">
     <div class="cTabs">
@@ -231,7 +248,7 @@ const titleEl = screenEl.querySelector('h1');
 let VW = 0, VH = 0;
 function resize(){
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  VW = window.innerWidth; VH = window.innerHeight;
+  VW = window.innerWidth || VW || 800; VH = window.innerHeight || VH || 600;
   cvs.width = VW * dpr; cvs.height = VH * dpr;
   cvs.style.width = VW + 'px'; cvs.style.height = VH + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -302,6 +319,48 @@ cvs.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.client
 cvs.addEventListener('mousedown', e => { if (e.button === 0) mouse.down = true; audio(); });
 window.addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
 cvs.addEventListener('contextmenu', e => e.preventDefault());
+
+// ---------- touch controls (iPad / iPhone / any touch screen) ----------
+const isTouch = ('ontouchstart' in window) || (window.matchMedia && matchMedia('(pointer: coarse)').matches);
+if (isTouch) document.getElementById('touchUI').classList.remove('hidden');
+const STICK_R = 58;
+const stick = {
+  move: { id: null, sx: 0, sy: 0, dx: 0, dy: 0 },   // left half: movement
+  aim:  { id: null, sx: 0, sy: 0, dx: 0, dy: 0 }    // right half: aim + fire
+};
+function stickVec(s){
+  return { x: s.dx / STICK_R, y: s.dy / STICK_R,
+    mag: Math.min(1, Math.hypot(s.dx, s.dy) / STICK_R) };
+}
+cvs.addEventListener('touchstart', e => {
+  e.preventDefault(); audio();
+  for (const t of e.changedTouches) {
+    const s = (t.clientX < VW / 2) ? stick.move : stick.aim;
+    if (s.id !== null) continue;
+    s.id = t.identifier; s.sx = t.clientX; s.sy = t.clientY; s.dx = 0; s.dy = 0;
+  }
+}, { passive: false });
+cvs.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    for (const s of [stick.move, stick.aim]) {
+      if (s.id !== t.identifier) continue;
+      s.dx = t.clientX - s.sx; s.dy = t.clientY - s.sy;
+      const d = Math.hypot(s.dx, s.dy);
+      if (d > STICK_R) { s.dx *= STICK_R / d; s.dy *= STICK_R / d; }
+    }
+  }
+}, { passive: false });
+function endTouch(e){
+  e.preventDefault();
+  for (const t of e.changedTouches)
+    for (const s of [stick.move, stick.aim])
+      if (s.id === t.identifier) { s.id = null; s.dx = 0; s.dy = 0; }
+}
+cvs.addEventListener('touchend', endTouch, { passive: false });
+cvs.addEventListener('touchcancel', endTouch, { passive: false });
+document.getElementById('tGear').addEventListener('click', () => { audio(); toggleCraft(); });
+document.getElementById('tPause').addEventListener('click', () => { audio(); if (state === 'play' || state === 'pause') togglePause(); });
 
 // ---------- world ----------
 const W = 5200, H = 4000;
@@ -426,10 +485,12 @@ function hitsObstacle(x, y, r){
   return false;
 }
 
+const GSCALE = 0.5; // half-res ground: iOS Safari caps canvases around 16.7M pixels
 function makeGround(){
   ground = document.createElement('canvas');
-  ground.width = W; ground.height = H;
+  ground.width = W * GSCALE; ground.height = H * GSCALE;
   const g = ground.getContext('2d');
+  g.scale(GSCALE, GSCALE);
   g.fillStyle = MAPS[meta.map].ground; g.fillRect(0, 0, W, H);
   // meadow patches
   for (let i = 0; i < 260; i++) {
@@ -727,6 +788,7 @@ function setTab(t){
   craftMenuEl.querySelectorAll('.cTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
 }
 craftMenuEl.addEventListener('click', e => {
+  if (e.target === craftMenuEl) { toggleCraft(); return; }  // tap outside panel closes
   const cb = e.target.closest('[data-craft]');
   if (cb && !cb.disabled) { craft(cb.dataset.craft); return; }
   const tb = e.target.closest('[data-tab]');
@@ -958,8 +1020,13 @@ function update(dt){
   if (keys.KeyS || keys.ArrowDown) my += 1;
   if (keys.KeyA || keys.ArrowLeft) mx -= 1;
   if (keys.KeyD || keys.ArrowRight) mx += 1;
+  let stickSprint = false;
+  if (stick.move.id !== null) {
+    const v = stickVec(stick.move);
+    if (v.mag > 0.2) { mx = v.x; my = v.y; stickSprint = v.mag > 0.92; }
+  }
   const moving = mx || my;
-  const sprint = (keys.ShiftLeft || keys.ShiftRight) && moving && player.stamina > 0;
+  const sprint = ((keys.ShiftLeft || keys.ShiftRight) || stickSprint) && moving && player.stamina > 0;
   if (sprint) player.stamina = Math.max(0, player.stamina - 32*dt);
   else player.stamina = Math.min(100, player.stamina + 22*dt);
   const spd = player.speed * player.speedMul * (sprint ? 1.55 : 1);
@@ -981,12 +1048,18 @@ function update(dt){
     sfx.med(); boom(player.x, player.y, '#8ce89a', 10);
   }
 
-  // aim + fire
-  player.angle = Math.atan2(mouse.y + cam.y - player.y, mouse.x + cam.x - player.x);
+  // aim + fire (right stick overrides mouse and auto-fires)
+  let touchFire = false;
+  if (stick.aim.id !== null) {
+    const v = stickVec(stick.aim);
+    if (v.mag > 0.25) { player.angle = Math.atan2(v.y, v.x); touchFire = true; }
+  } else {
+    player.angle = Math.atan2(mouse.y + cam.y - player.y, mouse.x + cam.x - player.x);
+  }
   if (player.reloading > 0) {
     player.reloading -= dt;
     if (player.reloading <= 0) { player.ammo = WEAPONS[player.weapon].mag; player.reloading = 0; }
-  } else if (mouse.down && player.fireCd <= 0) {
+  } else if ((mouse.down || touchFire) && player.fireCd <= 0) {
     const w = WEAPONS[player.weapon];
     if (player.ammo > 0) {
       player.ammo--; player.fireCd = w.rate;
@@ -1219,7 +1292,7 @@ function render(){
   ctx.save();
   ctx.translate(-cam.x + sx, -cam.y + sy);
 
-  ctx.drawImage(ground, 0, 0);
+  ctx.drawImage(ground, 0, 0, W, H);
 
   // decayed house floors
   for (const hs of houses) {
@@ -1472,6 +1545,15 @@ function render(){
 
   drawCompass();
   drawMinimap();
+
+  // virtual thumbsticks
+  for (const [s, col] of [[stick.move, 'rgba(255,255,255,0.5)'], [stick.aim, 'rgba(255,213,74,0.55)']]) {
+    if (s.id === null) continue;
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(s.sx, s.sy, STICK_R, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(s.sx + s.dx, s.sy + s.dy, 22, 0, Math.PI*2); ctx.fill();
+  }
 
   if (flash > 0) {
     ctx.fillStyle = `rgba(200,30,30,${flash*0.35})`;
