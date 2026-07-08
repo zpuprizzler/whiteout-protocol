@@ -40,6 +40,10 @@ Open `index.html` in a browser (or serve the folder with
 - **R** — reload · **Shift** — sprint (stamina bar)
 - **TAB** — gear & crafting · **P** — pause · **M** — mute
 
+**On iPad / iPhone / any touch screen:** left thumbstick moves (push it all the
+way to sprint), right thumbstick aims and fires. GEAR and PAUSE buttons sit in
+the top-right corner. Reloads are automatic.
+
 ### Arsenal
 
 | Weapon | Damage | Mag | Notes |
