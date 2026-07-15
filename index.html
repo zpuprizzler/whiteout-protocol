@@ -410,8 +410,8 @@ const MAPS = [
   { name:'RUST FLATS',    price:120, reward:90,  ground:'#a39068', tickers:16, wasps:8,  striders:3, need:6, espd:1.12, edmg:1.2, desc:'Faster machines, meaner bites' },
   { name:'ASHFALL',       price:300, reward:170, ground:'#7d7d74', tickers:22, wasps:12, striders:4, need:7, espd:1.25, edmg:1.4, desc:'The swarm thickens' },
   { name:'BLACKOUT ZONE', price:650, reward:300, ground:'#5f655c', tickers:30, wasps:16, striders:6, need:8, espd:1.4,  edmg:1.7, desc:'They know you are coming' },
-  { name:"TITAN'S NEST", price:1500, reward:800, ground:'#4a463e', tickers:8, wasps:4, striders:0, need:6, espd:1.45, edmg:2,
-    desc:'A third the ground, one gigantic problem', w:1733, h:1333, houses:1, cars:2, rocks:12, walls:6, trees:16, boss:true }
+  { name:"TITAN'S NEST", price:1500, reward:800, ground:'#4a463e', tickers:8, wasps:4, striders:0, need:0, espd:1.45, edmg:2,
+    desc:'A third the ground, one gigantic problem', w:1733, h:1333, houses:0, cars:2, rocks:12, walls:6, trees:16, boss:true }
 ];
 const PRICES = { scrap: 2, gears: 5, cloth: 3 };
 function loadMeta(){
@@ -424,6 +424,7 @@ function loadMeta(){
     mapsOwned: Math.min(Math.max(m.mapsOwned || 1, 1), MAPS.length),
     map: Math.min(m.map || 0, (m.mapsOwned || 1) - 1),
     mat: { scrap: m.mat?.scrap || 0, gears: m.mat?.gears || 0, cloth: m.mat?.cloth || 0 },
+    hearts: m.hearts || 0,
     loadout: { shield: m.loadout?.shield || 0, dmg: m.loadout?.dmg || 0, spd: m.loadout?.spd || 0, medkits: m.loadout?.medkits || 0 }
   };
 }
@@ -620,7 +621,7 @@ function newGame(){
     x: 300, y: H - 300, r: 14, hp: 100, stamina: 100,
     speed: 210, angle: 0, walk: 0,
     weapon: 'pistol', ammo: WEAPONS.pistol.mag, reloading: 0, fireCd: 0, hurtCd: 0, sinceHit: 99,
-    shield: 0, dmgMul: 1, speedMul: 1, autoMeds: 0,
+    shield: 0, dmgMul: 1, speedMul: 1, autoMeds: 0, hasHeart: false,
     mat: { scrap: 0, gears: 0, cloth: 0 }
   };
 
@@ -689,8 +690,8 @@ function newGame(){
     trees.push({ x, y, r: rnd(9, 13), cr: rnd(30, 54), ph: rnd(0, 9), tone: rnd(0, 1) });
   }
 
-  // salvage crates
-  for (let i = 0; i < NEED + 3; i++) {
+  // salvage crates (none in the Titan's nest — the heart is the prize)
+  for (let i = 0; i < (MAPC.boss ? 0 : NEED + 3); i++) {
     const p = placeClear(20, 420, crates.map(c => ({ x: c.x, y: c.y, d: 260 })));
     crates.push({ x: p.x, y: p.y, taken: false, pulse: rnd(0, 6) });
   }
@@ -778,8 +779,9 @@ function explodeRocket(b){
 }
 function checkUnlock(){
   if (extraction.unlocked) return;
-  if (crates.filter(k => k.taken).length < NEED) return;
-  if (!bossDead) return;
+  if (MAPC.boss) {
+    if (!bossDead || !player.hasHeart) return;
+  } else if (crates.filter(k => k.taken).length < NEED) return;
   extraction.unlocked = true;
   beep(520, 0.3, 'sine', 0.09); setTimeout(()=>beep(780,0.4,'sine',0.09), 250);
 }
@@ -802,8 +804,8 @@ function killEnemy(e){
       const a = rnd(0, Math.PI*2);
       pickups.push({ x: e.x + Math.cos(a)*rnd(50, 100), y: e.y + Math.sin(a)*rnd(50, 100), type: 'med' });
     }
+    pickups.push({ x: e.x, y: e.y, type: 'heart' });
     notice.t = 3; notice.text = '<b>THE TITAN IS DOWN</b>';
-    checkUnlock();
     return;
   }
   boom(e.x, e.y, '#2b2e28', 14); boom(e.x, e.y, '#ff8844', 10);
@@ -890,10 +892,11 @@ function win(){
   if (!best || runTime < best) store.set('wp_best', String(runTime));
   // bank the haul and pay the extraction reward
   lastRun = { salvage: crates.filter(c => c.taken).length, time: runTime.toFixed(1),
-    mats: { ...player.mat }, reward: MAPC.reward };
+    mats: { ...player.mat }, reward: MAPC.reward, heart: player.hasHeart };
   meta.mat.scrap += player.mat.scrap;
   meta.mat.gears += player.mat.gears;
   meta.mat.cloth += player.mat.cloth;
+  if (player.hasHeart) meta.hearts = (meta.hearts || 0) + 1;
   meta.money += MAPC.reward;
   saveMeta();
   openLobby();
@@ -924,7 +927,7 @@ function costHtml(cost){
 function refreshLobby(){
   document.getElementById('moneyN').textContent = meta.money;
   document.getElementById('lSummary').innerHTML = lastRun
-    ? `Last run: <b>${lastRun.salvage}</b> salvage in ${lastRun.time}s → <b>+$${lastRun.reward}</b>, banked ${lastRun.mats.scrap} scrap · ${lastRun.mats.gears} gears · ${lastRun.mats.cloth} cloth`
+    ? `Last run: <b>${lastRun.salvage}</b> salvage in ${lastRun.time}s → <b>+$${lastRun.reward}</b>, banked ${lastRun.mats.scrap} scrap · ${lastRun.mats.gears} gears · ${lastRun.mats.cloth} cloth${lastRun.heart ? ' · +1 <b>TITAN HEART</b>' : ''}`
     : 'Deploy, extract, and your haul lands here. Die out there and it stays in the valley.';
   const lo = meta.loadout;
   const loBits = [];
@@ -934,7 +937,7 @@ function refreshLobby(){
   if (lo.medkits) loBits.push(`${lo.medkits} medkit${lo.medkits > 1 ? 's' : ''}`);
   document.getElementById('lMeta').innerHTML =
     `Skin: <b>${SKINS[meta.skin].name}</b> · Map: <b>${MAPS[meta.map].name}</b><br>` +
-    `Bank: <b>${meta.mat.scrap}</b> scrap · <b>${meta.mat.gears}</b> gears · <b>${meta.mat.cloth}</b> cloth<br>` +
+    `Bank: <b>${meta.mat.scrap}</b> scrap · <b>${meta.mat.gears}</b> gears · <b>${meta.mat.cloth}</b> cloth${(meta.hearts || 0) > 0 ? ` · <b>${meta.hearts}</b> ♥` : ''}<br>` +
     `Next run: ${loBits.length ? '<b>' + loBits.join(' · ') + '</b>' : 'nothing crafted yet'}`;
   let html = '';
   if (curLtab === 'craft') {
@@ -952,6 +955,11 @@ function refreshLobby(){
         `<div class="lBtns"><button class="craftBtn" data-act="sell" data-k="${k}" data-n="1" ${meta.mat[k] < 1 ? 'disabled' : ''}>SELL 1</button>` +
         `<button class="craftBtn" data-act="sell" data-k="${k}" data-n="all" ${meta.mat[k] < 1 ? 'disabled' : ''}>ALL</button></div></div>`;
     }
+    const hearts = meta.hearts || 0;
+    html += `<div class="row"><div><div class="rname">TITAN HEART</div><div class="rdesc">$700 each — the Titan's still-warm core</div></div>` +
+      `<div class="mnum">${hearts}</div>` +
+      `<div class="lBtns"><button class="craftBtn" data-act="sell" data-k="heart" data-n="1" ${hearts < 1 ? 'disabled' : ''}>SELL 1</button>` +
+      `<button class="craftBtn" data-act="sell" data-k="heart" data-n="all" ${hearts < 1 ? 'disabled' : ''}>ALL</button></div></div>`;
   } else if (curLtab === 'skins') {
     for (const k in SKINS) {
       const s = SKINS[k];
@@ -964,7 +972,7 @@ function refreshLobby(){
     MAPS.forEach((m, i) => {
       const owned = i < meta.mapsOwned, sel = meta.map === i, next = i === meta.mapsOwned;
       html += `<div class="row"><div><div class="rname">${m.name}</div>` +
-        `<div class="rdesc">${m.desc} — ${m.tickers + m.wasps + m.striders} machines${m.boss ? ' + THE TITAN' : ''} · ${m.need} salvage · reward $${m.reward}</div>` +
+        `<div class="rdesc">${m.desc} — ${m.tickers + m.wasps + m.striders} machines${m.boss ? ' + THE TITAN' : ''} · ${m.boss ? 'TITAN HEART' : m.need + ' salvage'} · reward $${m.reward}</div>` +
         `<div class="cost">${owned ? 'UNLOCKED' : next ? '$' + m.price : 'LOCKED'}</div></div>` +
         `<button class="craftBtn" data-act="map" data-k="${i}" ${sel || (!owned && (!next || meta.money < m.price)) ? 'disabled' : ''}>${sel ? 'SELECTED' : owned ? 'SELECT' : 'BUY'}</button></div>`;
     });
@@ -978,8 +986,14 @@ lobbyEl.addEventListener('click', e => {
   if (!b || b.disabled) return;
   const act = b.dataset.act, k = b.dataset.k;
   if (act === 'sell') {
-    const n = b.dataset.n === 'all' ? meta.mat[k] : 1;
-    meta.mat[k] -= n; meta.money += n * PRICES[k]; sfx.pickup();
+    if (k === 'heart') {
+      const n = b.dataset.n === 'all' ? (meta.hearts || 0) : 1;
+      meta.hearts = (meta.hearts || 0) - n; meta.money += n * 700;
+    } else {
+      const n = b.dataset.n === 'all' ? meta.mat[k] : 1;
+      meta.mat[k] -= n; meta.money += n * PRICES[k];
+    }
+    sfx.pickup();
   } else if (act === 'skin') {
     const s = SKINS[k];
     if (!meta.skins.includes(k)) { meta.money -= s.price; meta.skins.push(k); }
@@ -1003,7 +1017,7 @@ function refreshMapSelect(){
   MAPS.forEach((m, i) => {
     const owned = i < meta.mapsOwned, next = i === meta.mapsOwned;
     html += `<div class="row"><div><div class="rname">${m.name}</div>` +
-      `<div class="rdesc">${m.desc} — ${m.tickers + m.wasps + m.striders} machines${m.boss ? ' + THE TITAN' : ''} · ${m.need} salvage · reward $${m.reward}</div>` +
+      `<div class="rdesc">${m.desc} — ${m.tickers + m.wasps + m.striders} machines${m.boss ? ' + THE TITAN' : ''} · ${m.boss ? 'TITAN HEART' : m.need + ' salvage'} · reward $${m.reward}</div>` +
       `<div class="cost">${owned ? 'UNLOCKED' : next ? 'UNLOCK FOR $' + m.price : 'LOCKED — unlock the previous map first'}</div></div>` +
       (owned
         ? `<button class="craftBtn" data-mapsel="${i}">DROP IN</button>`
@@ -1336,8 +1350,17 @@ function update(dt){
   for (const p of pickups) {
     if (p.dead) continue;
     if (dist2(p.x, p.y, player.x, player.y) < (player.r + 14)*(player.r + 14)) {
-      p.dead = true; player.hp = Math.min(100, player.hp + 25); sfx.med();
-      boom(p.x, p.y, '#8ce89a', 8);
+      p.dead = true;
+      if (p.type === 'heart') {
+        player.hasHeart = true;
+        notice.t = 3; notice.text = '<b>TITAN HEART</b> ACQUIRED';
+        boom(p.x, p.y, '#ff6a5c', 16);
+        sfx.pickup();
+        checkUnlock();
+      } else {
+        player.hp = Math.min(100, player.hp + 25); sfx.med();
+        boom(p.x, p.y, '#8ce89a', 8);
+      }
     }
   }
   pickups = pickups.filter(p => !p.dead);
@@ -1416,9 +1439,11 @@ function updateHud(){
       : 'REACH THE <b>EXTRACTION PAD</b> ↗';
   } else {
     const parts = [];
-    if (got < NEED) parts.push(`COLLECT SALVAGE <b>${got}/${NEED}</b>`);
-    if (MAPC.boss && !bossDead) parts.push('DESTROY <b>THE TITAN</b>');
-    objEl.innerHTML = parts.join(' · ') || `COLLECT SALVAGE <b>${got}/${NEED}</b>`;
+    if (MAPC.boss) {
+      if (!bossDead) parts.push('DESTROY <b>THE TITAN</b>');
+      else if (!player.hasHeart) parts.push('TAKE THE <b>TITAN HEART</b>');
+    } else if (got < NEED) parts.push(`COLLECT SALVAGE <b>${got}/${NEED}</b>`);
+    objEl.innerHTML = parts.length ? parts.join(' · ') : 'REACH THE <b>EXTRACTION PAD</b>';
   }
   if (notice.t > 0) objEl.innerHTML = notice.text;
   const bossOn = MAPC.boss && !bossDead && bossRef;
@@ -1487,7 +1512,7 @@ function render(){
   }
   ctx.fillStyle = un ? '#bdf0c6' : 'rgba(235,235,235,0.65)';
   ctx.font = '700 13px -apple-system,sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText(un ? 'EXTRACTION' : `LOCKED · ${NEED} SALVAGE`, 0, 4);
+  ctx.fillText(un ? 'EXTRACTION' : (MAPC.boss ? 'LOCKED · TITAN HEART' : `LOCKED · ${NEED} SALVAGE`), 0, 4);
   ctx.restore();
 
   // walls
@@ -1644,12 +1669,22 @@ function render(){
     ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
-  // med pickups
+  // pickups: medkits & the Titan Heart
   for (const p of pickups) {
-    ctx.fillStyle = '#e8f5ea';
-    ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#3fae57';
-    ctx.fillRect(p.x - 5, p.y - 1.5, 10, 3); ctx.fillRect(p.x - 1.5, p.y - 5, 3, 10);
+    if (p.type === 'heart') {
+      const pulse = 0.6 + Math.sin(runTime*5)*0.3;
+      ctx.fillStyle = `rgba(255,90,70,${pulse*0.35})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 22, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#c22a20';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = `rgba(255,150,120,${pulse})`;
+      ctx.beginPath(); ctx.arc(p.x - 2, p.y - 2, 4.5, 0, Math.PI*2); ctx.fill();
+    } else {
+      ctx.fillStyle = '#e8f5ea';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#3fae57';
+      ctx.fillRect(p.x - 5, p.y - 1.5, 10, 3); ctx.fillRect(p.x - 1.5, p.y - 5, 3, 10);
+    }
   }
   // enemies
   for (const e of enemies) drawEnemy(e);
@@ -1869,6 +1904,14 @@ function drawEnemy(e){
 function drawCompass(){
   let tx, ty;
   if (extraction.unlocked) { tx = extraction.x; ty = extraction.y; }
+  else if (MAPC.boss) {
+    if (bossRef && !bossDead) { tx = bossRef.x; ty = bossRef.y; }
+    else {
+      const h = pickups.find(p => p.type === 'heart' && !p.dead);
+      if (!h) return;
+      tx = h.x; ty = h.y;
+    }
+  }
   else {
     let best = Infinity, c0 = null;
     for (const c of crates) {
@@ -1937,6 +1980,11 @@ function drawMinimap(){
   if (bossRef && !bossDead) {
     ctx.fillStyle = '#ff5040';
     ctx.beginPath(); ctx.arc(ox + bossRef.x*s, oy + bossRef.y*s, 4.5, 0, Math.PI*2); ctx.fill();
+  }
+  const heartDrop = pickups.find(p => p.type === 'heart' && !p.dead);
+  if (heartDrop) {
+    ctx.fillStyle = '#ff6a5c';
+    ctx.beginPath(); ctx.arc(ox + heartDrop.x*s, oy + heartDrop.y*s, 3.5, 0, Math.PI*2); ctx.fill();
   }
   // player
   ctx.fillStyle = '#fff';
