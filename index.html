@@ -1386,7 +1386,7 @@ function update(dt){
     const before = extraction.progress;
     extraction.progress = Math.min(4, extraction.progress + dt);
     if (Math.floor(before) !== Math.floor(extraction.progress)) sfx.tick();
-    if (!waveSpawned) {
+    if (!waveSpawned && !MAPC.boss) { // the nest is spent — no last swarm after the Titan falls
       waveSpawned = true;
       for (let i = 0; i < 5; i++) {
         const a = rnd(0, Math.PI*2);
