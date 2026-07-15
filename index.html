@@ -454,7 +454,7 @@ const RECIPES = {
 };
 let state = 'menu';   // menu | play | pause | dead | win
 let player, rocks, walls, crates, pickups, enemies, bullets, ebullets, particles;
-let extraction, cam, shake, flash, runTime, waveSpawned, ground;
+let extraction, cam, shake, flash, bflash, blasts, runTime, waveSpawned, ground;
 let houses, cars, lootCrates, trees, weaponCrates, notice;
 
 function rnd(a, b){ return a + Math.random() * (b - a); }
@@ -616,7 +616,7 @@ function newGame(){
   enemies = []; bullets = []; ebullets = []; particles = [];
   houses = []; cars = []; lootCrates = []; trees = [];
   weaponCrates = []; notice = { t: 0, text: '' };
-  shake = 0; flash = 0; runTime = 0; waveSpawned = false;
+  shake = 0; flash = 0; bflash = 0; blasts = []; runTime = 0; waveSpawned = false;
 
   player = {
     x: 300, y: H - 300, r: 14, hp: 100,
@@ -797,11 +797,24 @@ function killEnemy(e){
   e.dead = true;
   if (e.kind === 'boss') {
     bossDead = true; bossRef = null;
-    for (let i = 0; i < 5; i++) setTimeout(() => {
-      boom(e.x + rnd(-70, 70), e.y + rnd(-70, 70), i % 2 ? '#ff8844' : '#2b2e28', 18);
-      sfx.explode();
-    }, i * 140);
-    shake = 14;
+    // cataclysmic chain detonation
+    for (let i = 0; i < 10; i++) setTimeout(() => {
+      boom(e.x + rnd(-90, 90), e.y + rnd(-90, 90),
+        i % 3 === 0 ? '#fff3d0' : i % 2 ? '#ff8844' : '#2b2e28', 22);
+      noise(0.35, 0.16, 500);
+      beep(70 + rnd(0, 40), 0.45, 'sine', 0.1, 30);
+    }, i * 110);
+    blasts.push({ x: e.x, y: e.y, r: 24, life: 0.9, max: 0.9 });
+    setTimeout(() => blasts.push({ x: e.x, y: e.y, r: 24, life: 1.1, max: 1.1 }), 260);
+    // lingering smoke column
+    for (let i = 0; i < 26; i++) {
+      const a = rnd(0, Math.PI*2), d = rnd(0, 80);
+      particles.push({ x: e.x + Math.cos(a)*d, y: e.y + Math.sin(a)*d,
+        vx: rnd(-25, 25), vy: rnd(-45, -10), life: rnd(1.2, 2.4), max: 2.4,
+        col: 'rgba(90,90,85,0.6)', r: rnd(4, 9) });
+    }
+    bflash = 1;
+    shake = 26;
     for (let i = 0; i < 3; i++) {
       const a = rnd(0, Math.PI*2);
       pickups.push({ x: e.x + Math.cos(a)*rnd(50, 100), y: e.y + Math.sin(a)*rnd(50, 100), type: 'med' });
@@ -1407,6 +1420,9 @@ function update(dt){
   cam.y = Math.max(0, Math.min(H - VH, cam.y));
   shake = Math.max(0, shake - 40*dt);
   flash = Math.max(0, flash - 2*dt);
+  bflash = Math.max(0, bflash - 1.1*dt);
+  for (const bl of blasts) { bl.life -= dt; bl.r += 540*dt; }
+  blasts = blasts.filter(b => b.life > 0);
   notice.t = Math.max(0, notice.t - dt);
 
   updateHud();
@@ -1725,6 +1741,17 @@ function render(){
   }
   ctx.globalAlpha = 1;
 
+  // expanding shockwave rings
+  for (const bl of blasts) {
+    const a = Math.max(0, bl.life / bl.max);
+    ctx.strokeStyle = `rgba(255,220,170,${a*0.85})`;
+    ctx.lineWidth = 6*a + 1.5;
+    ctx.beginPath(); ctx.arc(bl.x, bl.y, bl.r, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,120,70,${a*0.4})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(bl.x, bl.y, bl.r*0.78, 0, Math.PI*2); ctx.stroke();
+  }
+
   drawPlayer();
 
   // tree canopies sway overhead
@@ -1751,6 +1778,10 @@ function render(){
 
   if (flash > 0) {
     ctx.fillStyle = `rgba(200,30,30,${flash*0.35})`;
+    ctx.fillRect(0, 0, VW, VH);
+  }
+  if (bflash > 0) {
+    ctx.fillStyle = `rgba(255,235,200,${bflash*0.55})`;
     ctx.fillRect(0, 0, VW, VH);
   }
   // vignette
