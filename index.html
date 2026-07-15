@@ -411,7 +411,8 @@ const MAPS = [
   { name:'ASHFALL',       price:300, reward:170, ground:'#7d7d74', tickers:22, wasps:12, striders:4, need:7, espd:1.25, edmg:1.4, desc:'The swarm thickens' },
   { name:'BLACKOUT ZONE', price:650, reward:300, ground:'#5f655c', tickers:30, wasps:16, striders:6, need:8, espd:1.4,  edmg:1.7, desc:'They know you are coming' },
   { name:"TITAN'S NEST", price:1500, reward:800, ground:'#4a463e', tickers:8, wasps:4, striders:0, need:0, espd:1.45, edmg:2,
-    desc:'A third the ground, one gigantic problem', w:1733, h:1333, houses:0, cars:2, rocks:12, walls:6, trees:16, boss:true }
+    desc:'A third the ground, one gigantic problem', w:1733, h:1333, houses:0, cars:2, rocks:12, walls:6, trees:16, boss:true,
+    playerSpd:1.5, stamMax:200 }
 ];
 const PRICES = { scrap: 2, gears: 5, cloth: 3 };
 function loadMeta(){
@@ -618,7 +619,8 @@ function newGame(){
   shake = 0; flash = 0; runTime = 0; waveSpawned = false;
 
   player = {
-    x: 300, y: H - 300, r: 14, hp: 100, stamina: 100,
+    x: 300, y: H - 300, r: 14, hp: 100,
+    stamina: MAPC.stamMax || 100, maxStam: MAPC.stamMax || 100,
     speed: 210, angle: 0, walk: 0,
     weapon: 'pistol', ammo: WEAPONS.pistol.mag, reloading: 0, fireCd: 0, hurtCd: 0, sinceHit: 99,
     shield: 0, dmgMul: 1, speedMul: 1, autoMeds: 0, hasHeart: false,
@@ -1110,8 +1112,8 @@ function update(dt){
   const moving = mx || my;
   const sprint = ((keys.ShiftLeft || keys.ShiftRight) || stickSprint) && moving && player.stamina > 0;
   if (sprint) player.stamina = Math.max(0, player.stamina - 32*dt);
-  else player.stamina = Math.min(100, player.stamina + 22*dt);
-  const spd = player.speed * player.speedMul * (sprint ? 1.55 : 1);
+  else player.stamina = Math.min(player.maxStam, player.stamina + 22*dt);
+  const spd = player.speed * player.speedMul * (MAPC.playerSpd || 1) * (sprint ? 1.55 : 1);
   if (moving) {
     const l = Math.hypot(mx, my);
     player.x += mx/l * spd * dt;
@@ -1424,7 +1426,7 @@ function wander(e, dt){
 function updateHud(){
   hpFill.style.width = player.hp + '%';
   shFill.style.width = (player.shield * 2) + '%';
-  stFill.style.width = player.stamina + '%';
+  stFill.style.width = (player.stamina / player.maxStam * 100) + '%';
   const wpn = WEAPONS[player.weapon];
   ammoEl.innerHTML = player.reloading > 0
     ? wpn.name + ' · <span class="rel">RELOADING…</span>'
