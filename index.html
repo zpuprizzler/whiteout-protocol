@@ -131,6 +131,16 @@
     text-shadow:0 1px 3px rgba(0,0,0,.8); white-space:nowrap;
   }
   #objective b { color:#ffd54a; }
+  #bossBar { position:fixed; top:56px; left:50%; transform:translateX(-50%);
+    width:min(440px, 72vw); z-index:5; pointer-events:none; user-select:none;
+    text-align:center; }
+  #bossBar.hidden { display:none; }
+  .bLabel { font-size:11px; font-weight:800; letter-spacing:4px; color:#ff7a5c;
+    text-shadow:0 1px 3px rgba(0,0,0,.8); margin-bottom:3px; }
+  .bTrack { height:12px; background:rgba(0,0,0,.5); border:1px solid rgba(255,120,90,.5);
+    border-radius:7px; overflow:hidden; }
+  .bTrack i { display:block; height:100%; width:100%;
+    background:linear-gradient(90deg,#a83226,#ff6a50); transition:width .15s linear; }
   #screen {
     position:fixed; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center; gap:16px; text-align:center;
@@ -171,6 +181,10 @@
   <div id="inv">SCRAP <b>0</b> · GEARS <b>0</b> · CLOTH <b>0</b></div>
 </div>
 <div id="objective">COLLECT SALVAGE <b>0/5</b></div>
+<div id="bossBar" class="hidden">
+  <div class="bLabel">THE TITAN</div>
+  <div class="bTrack"><i id="bossFill"></i></div>
+</div>
 <div id="mute">M mute · P pause · TAB gear</div>
 <div id="touchUI" class="hidden">
   <button id="tGear">GEAR</button>
@@ -367,8 +381,8 @@ document.getElementById('tGear').addEventListener('click', () => { audio(); togg
 document.getElementById('tPause').addEventListener('click', () => { audio(); if (state === 'play' || state === 'pause') togglePause(); });
 
 // ---------- world ----------
-const W = 5200, H = 4000;
-let NEED = 5, MAPC = null;
+let W = 5200, H = 4000;
+let NEED = 5, MAPC = null, bossDead = true, bossRef = null;
 const WEAPONS = {
   pistol:  { name:'PISTOL',  tier:0, dmg:12, rate:0.14,  spread:0.045, speed:720,  mag:12, reload:1.2, pellets:1, life:0.85, col:'#fff8e0' },
   smg:     { name:'SMG',     tier:1, dmg:8,  rate:0.085, spread:0.10,  speed:700,  mag:28, reload:1.4, pellets:1, life:0.7,  col:'#7fc8ff' },
@@ -395,7 +409,9 @@ const MAPS = [
   { name:'THE VALLEY',    price:0,   reward:40,  ground:'#8e9479', tickers:10, wasps:5,  striders:2, need:5, espd:1,    edmg:1,   desc:'Where it all began' },
   { name:'RUST FLATS',    price:120, reward:90,  ground:'#a39068', tickers:16, wasps:8,  striders:3, need:6, espd:1.12, edmg:1.2, desc:'Faster machines, meaner bites' },
   { name:'ASHFALL',       price:300, reward:170, ground:'#7d7d74', tickers:22, wasps:12, striders:4, need:7, espd:1.25, edmg:1.4, desc:'The swarm thickens' },
-  { name:'BLACKOUT ZONE', price:650, reward:300, ground:'#5f655c', tickers:30, wasps:16, striders:6, need:8, espd:1.4,  edmg:1.7, desc:'They know you are coming' }
+  { name:'BLACKOUT ZONE', price:650, reward:300, ground:'#5f655c', tickers:30, wasps:16, striders:6, need:8, espd:1.4,  edmg:1.7, desc:'They know you are coming' },
+  { name:"TITAN'S NEST", price:1500, reward:800, ground:'#4a463e', tickers:8, wasps:4, striders:0, need:6, espd:1.45, edmg:2,
+    desc:'A third the ground, one gigantic problem', w:1733, h:1333, houses:1, cars:2, rocks:12, walls:6, trees:16, boss:true }
 ];
 const PRICES = { scrap: 2, gears: 5, cloth: 3 };
 function loadMeta(){
@@ -592,6 +608,7 @@ function ensureGround(){
 
 function newGame(){
   MAPC = MAPS[meta.map]; NEED = MAPC.need;
+  W = MAPC.w || 5200; H = MAPC.h || 4000;
   ensureGround();
   rocks = []; walls = []; crates = []; pickups = [];
   enemies = []; bullets = []; ebullets = []; particles = [];
@@ -609,9 +626,10 @@ function newGame(){
 
   // extraction pad lands somewhere new every run, far from spawn
   extraction = { x: W - 300, y: 300, r: 78, progress: 0, unlocked: false };
+  const minD = Math.min(2800, Math.hypot(W, H) * 0.55);
   for (let t = 0; t < 300; t++) {
     const x = rnd(260, W - 260), y = rnd(260, H - 260);
-    if (dist2(x, y, player.x, player.y) < 2800*2800) continue;
+    if (dist2(x, y, player.x, player.y) < minD*minD) continue;
     extraction.x = x; extraction.y = y; break;
   }
 
@@ -631,18 +649,18 @@ function newGame(){
     const f = { x: W/2 + rnd(-400, 400), y: H/2 + rnd(-400, 400) };
     spots.push(f); return f;
   }
-  for (let i = 0; i < 3; i++) { const p = structSpot(240); addHouse(p.x, p.y, i % 2); }
-  for (let i = 0; i < 4; i++) { const p = structSpot(120); addCar(p.x, p.y, i % 2); }
+  for (let i = 0; i < (MAPC.houses ?? 3); i++) { const p = structSpot(240); addHouse(p.x, p.y, i % 2); }
+  for (let i = 0; i < (MAPC.cars ?? 4); i++) { const p = structSpot(120); addCar(p.x, p.y, i % 2); }
 
   // rocks + ruined walls (keep spawn, pad & structures clear)
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < (MAPC.rocks ?? 80); i++) {
     const x = rnd(80, W-80), y = rnd(80, H-80), r = rnd(18, 46);
     if (dist2(x, y, player.x, player.y) < 300*300) continue;
     if (dist2(x, y, extraction.x, extraction.y) < 260*260) continue;
     if (inStructure(x, y, r + 20)) continue;
     rocks.push({ x, y, r, tone: rnd(0, 1) });
   }
-  for (let i = 0; i < 32; i++) {
+  for (let i = 0; i < (MAPC.walls ?? 32); i++) {
     const horiz = Math.random() < 0.5;
     const x = rnd(150, W-450), y = rnd(150, H-450);
     const w = horiz ? rnd(120, 300) : rnd(22, 34), h = horiz ? rnd(22, 34) : rnd(120, 300);
@@ -653,9 +671,10 @@ function newGame(){
   }
 
   // trees: mostly in groves, plus scattered loners
+  const nTrees = MAPC.trees ?? 130;
   const groves = [];
-  for (let g = 0; g < 9; g++) groves.push({ x: rnd(300, W-300), y: rnd(300, H-300) });
-  for (let i = 0; i < 130; i++) {
+  for (let g = 0; g < Math.max(2, Math.round(nTrees / 15)); g++) groves.push({ x: rnd(300, W-300), y: rnd(300, H-300) });
+  for (let i = 0; i < nTrees; i++) {
     let x, y;
     if (Math.random() < 0.7) {
       const gv = groves[Math.floor(rnd(0, groves.length))];
@@ -705,11 +724,22 @@ function newGame(){
       Math.max(80, Math.min(W - 80, extraction.x + Math.cos(a) * rnd(130, 230))),
       Math.max(80, Math.min(H - 80, extraction.y + Math.sin(a) * rnd(130, 230)))));
   }
+  bossDead = true; bossRef = null;
+  if (MAPC.boss) {
+    bossDead = false;
+    bossRef = makeBoss(W / 2, H / 2);
+    enemies.push(bossRef);
+  }
 
   cam = { x: player.x - VW/2, y: player.y - VH/2 };
   updateHud();
 }
 
+function makeBoss(x, y){
+  return { kind: 'boss', x, y, r: 74, hp: 2600, maxHp: 2600, speed: 38, alert: 0,
+    hitCd: 0, rocketCd: 2.5, barrageCd: 4.5, ring: false, summoned: {},
+    phase: rnd(0, 9), wx: x, wy: y, wt: 0 };
+}
 function makeTicker(x, y){ return { kind: 'ticker', x, y, r: 12, hp: 24, speed: rnd(115, 150) * MAPC.espd, alert: 0, hitCd: 0, phase: rnd(0, 9), wx: x, wy: y, wt: 0 }; }
 function makeWasp(x, y){ return { kind: 'wasp', x, y, r: 14, hp: 36, speed: 130 * MAPC.espd, alert: 0, cd: rnd(1, 2.4), burst: 0, bGap: 0, phase: rnd(0, 9), wx: x, wy: y, wt: 0 }; }
 function makeStrider(x, y){ return { kind: 'strider', x, y, r: 26, hp: 120, speed: 58 * MAPC.espd, alert: 0, cd: 2, phase: rnd(0, 9), wx: x, wy: y, wt: 0 }; }
@@ -734,6 +764,25 @@ function damagePlayer(dmg){
   flash = 0.5; shake = Math.min(14, shake + 7); sfx.hurt();
   if (player.hp <= 0) { player.hp = 0; die(); }
 }
+function fireRocket(e, a, homing){
+  const sp = homing ? 230 : 420;
+  ebullets.push({ x: e.x + Math.cos(a)*(e.r + 12), y: e.y + Math.sin(a)*(e.r + 12),
+    vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+    life: homing ? 5 : 3, r: 7, dmg: homing ? 24 : 32,
+    rocket: true, homing, smokeT: 0 });
+}
+function explodeRocket(b){
+  boom(b.x, b.y, '#ff8844', 14); boom(b.x, b.y, '#2b2e28', 8);
+  sfx.explode(); shake = Math.min(14, shake + 5);
+  if (dist2(b.x, b.y, player.x, player.y) < 75*75) damagePlayer(b.dmg);
+}
+function checkUnlock(){
+  if (extraction.unlocked) return;
+  if (crates.filter(k => k.taken).length < NEED) return;
+  if (!bossDead) return;
+  extraction.unlocked = true;
+  beep(520, 0.3, 'sine', 0.09); setTimeout(()=>beep(780,0.4,'sine',0.09), 250);
+}
 function boom(x, y, col, n){
   for (let i = 0; i < n; i++) {
     const a = rnd(0, Math.PI*2), s = rnd(40, 260);
@@ -742,6 +791,21 @@ function boom(x, y, col, n){
 }
 function killEnemy(e){
   e.dead = true;
+  if (e.kind === 'boss') {
+    bossDead = true; bossRef = null;
+    for (let i = 0; i < 5; i++) setTimeout(() => {
+      boom(e.x + rnd(-70, 70), e.y + rnd(-70, 70), i % 2 ? '#ff8844' : '#2b2e28', 18);
+      sfx.explode();
+    }, i * 140);
+    shake = 14;
+    for (let i = 0; i < 3; i++) {
+      const a = rnd(0, Math.PI*2);
+      pickups.push({ x: e.x + Math.cos(a)*rnd(50, 100), y: e.y + Math.sin(a)*rnd(50, 100), type: 'med' });
+    }
+    notice.t = 3; notice.text = '<b>THE TITAN IS DOWN</b>';
+    checkUnlock();
+    return;
+  }
   boom(e.x, e.y, '#2b2e28', 14); boom(e.x, e.y, '#ff8844', 10);
   sfx.explode(); shake = Math.min(14, shake + 4);
   if (e.kind !== 'wasp' && Math.random() < 0.22)
@@ -900,7 +964,7 @@ function refreshLobby(){
     MAPS.forEach((m, i) => {
       const owned = i < meta.mapsOwned, sel = meta.map === i, next = i === meta.mapsOwned;
       html += `<div class="row"><div><div class="rname">${m.name}</div>` +
-        `<div class="rdesc">${m.desc} — ${m.tickers + m.wasps + m.striders} machines · ${m.need} salvage · reward $${m.reward}</div>` +
+        `<div class="rdesc">${m.desc} — ${m.tickers + m.wasps + m.striders} machines${m.boss ? ' + THE TITAN' : ''} · ${m.need} salvage · reward $${m.reward}</div>` +
         `<div class="cost">${owned ? 'UNLOCKED' : next ? '$' + m.price : 'LOCKED'}</div></div>` +
         `<button class="craftBtn" data-act="map" data-k="${i}" ${sel || (!owned && (!next || meta.money < m.price)) ? 'disabled' : ''}>${sel ? 'SELECTED' : owned ? 'SELECT' : 'BUY'}</button></div>`;
     });
@@ -939,7 +1003,7 @@ function refreshMapSelect(){
   MAPS.forEach((m, i) => {
     const owned = i < meta.mapsOwned, next = i === meta.mapsOwned;
     html += `<div class="row"><div><div class="rname">${m.name}</div>` +
-      `<div class="rdesc">${m.desc} — ${m.tickers + m.wasps + m.striders} machines · ${m.need} salvage · reward $${m.reward}</div>` +
+      `<div class="rdesc">${m.desc} — ${m.tickers + m.wasps + m.striders} machines${m.boss ? ' + THE TITAN' : ''} · ${m.need} salvage · reward $${m.reward}</div>` +
       `<div class="cost">${owned ? 'UNLOCKED' : next ? 'UNLOCK FOR $' + m.price : 'LOCKED — unlock the previous map first'}</div></div>` +
       (owned
         ? `<button class="craftBtn" data-mapsel="${i}">DROP IN</button>`
@@ -1088,8 +1152,10 @@ function update(dt){
       if (dist2(b.x, b.y, e.x, e.y) < (e.r+3)*(e.r+3)) {
         b.dead = true; e.hp -= b.dmg; e.alert = 7; sfx.hit();
         boom(b.x, b.y, '#ffd27a', 4);
-        const d = Math.hypot(b.vx, b.vy);
-        e.x += b.vx/d*4; e.y += b.vy/d*4;
+        if (e.kind !== 'boss') {
+          const d = Math.hypot(b.vx, b.vy);
+          e.x += b.vx/d*4; e.y += b.vy/d*4;
+        }
         if (e.hp <= 0) killEnemy(e);
         break;
       }
@@ -1153,15 +1219,83 @@ function update(dt){
         }
       } else wander(e, dt);
     }
+    else if (e.kind === 'boss') {
+      e.hitCd -= dt;
+      if (pd2 < 650*650 || e.hp < e.maxHp) e.alert = 9;
+      if (e.alert > 0) {
+        e.phase += dt*2.4;
+        if (pd2 > 240*240) {
+          e.x += Math.cos(pa)*e.speed*dt; e.y += Math.sin(pa)*e.speed*dt;
+          resolveObstacles(e);
+        }
+        // stomp
+        if (pd2 < (e.r + player.r + 6)*(e.r + player.r + 6) && e.hitCd <= 0) {
+          e.hitCd = 1; damagePlayer(30);
+          player.x += Math.cos(pa)*28; player.y += Math.sin(pa)*28;
+          shake = 14;
+        }
+        // homing missile volley
+        e.rocketCd -= dt;
+        if (e.rocketCd <= 0) {
+          e.rocketCd = 3.4;
+          for (let i = -1.5; i <= 1.5; i++) fireRocket(e, pa + i*0.45, true);
+          beep(120, 0.3, 'sawtooth', 0.08, 50);
+        }
+        // straight rockets: aimed pair, alternating with a full ring
+        e.barrageCd -= dt;
+        if (e.barrageCd <= 0) {
+          e.barrageCd = 5.8; e.ring = !e.ring;
+          if (e.ring) for (let i = 0; i < 10; i++) fireRocket(e, (i/10)*Math.PI*2, false);
+          else { fireRocket(e, pa - 0.07, false); fireRocket(e, pa + 0.07, false); }
+          beep(90, 0.4, 'sawtooth', 0.1, 40);
+        }
+        // reinforcements at 75/50/25% hull
+        for (const [th, key] of [[0.75,'a'],[0.5,'b'],[0.25,'c']]) {
+          if (e.hp < e.maxHp*th && !e.summoned[key]) {
+            e.summoned[key] = 1;
+            for (let i = 0; i < 3; i++) {
+              const a = rnd(0, Math.PI*2);
+              const t = makeTicker(
+                Math.max(60, Math.min(W-60, e.x + Math.cos(a)*rnd(100, 160))),
+                Math.max(60, Math.min(H-60, e.y + Math.sin(a)*rnd(100, 160))));
+              t.alert = 99; enemies.push(t);
+            }
+            boom(e.x, e.y, '#ff8844', 20);
+          }
+        }
+      } else { e.phase += dt; wander(e, dt); }
+    }
   }
   enemies = enemies.filter(e => !e.dead);
 
-  // enemy bullets
+  // enemy bullets & rockets
   for (const b of ebullets) {
+    if (b.rocket && b.homing) {
+      const cur = Math.atan2(b.vy, b.vx);
+      let diff = Math.atan2(player.y - b.y, player.x - b.x) - cur;
+      while (diff > Math.PI) diff -= Math.PI*2;
+      while (diff < -Math.PI) diff += Math.PI*2;
+      const na = cur + Math.max(-2.2*dt, Math.min(2.2*dt, diff));
+      const sp = Math.hypot(b.vx, b.vy);
+      b.vx = Math.cos(na)*sp; b.vy = Math.sin(na)*sp;
+    }
+    if (b.rocket) {
+      b.smokeT -= dt;
+      if (b.smokeT <= 0) {
+        b.smokeT = 0.045;
+        particles.push({ x: b.x, y: b.y, vx: rnd(-15, 15), vy: rnd(-15, 15),
+          life: rnd(0.3, 0.5), max: 0.5, col: 'rgba(120,120,115,0.7)', r: rnd(2, 3.5) });
+      }
+    }
     b.x += b.vx*dt; b.y += b.vy*dt; b.life -= dt;
-    if (b.life <= 0 || hitsObstacle(b.x, b.y, 2)) { b.dead = true; continue; }
+    if (b.life <= 0 || hitsObstacle(b.x, b.y, 2)) {
+      if (b.rocket) explodeRocket(b);
+      b.dead = true; continue;
+    }
     if (dist2(b.x, b.y, player.x, player.y) < (player.r + b.r)*(player.r + b.r)) {
-      b.dead = true; damagePlayer(b.dmg); boom(b.x, b.y, '#ff8844', 5);
+      b.dead = true;
+      if (b.rocket) explodeRocket(b);
+      else { damagePlayer(b.dmg); boom(b.x, b.y, '#ff8844', 5); }
     }
   }
   ebullets = ebullets.filter(b => !b.dead);
@@ -1173,11 +1307,7 @@ function update(dt){
     if (dist2(c.x, c.y, player.x, player.y) < (player.r + 20)*(player.r + 20)) {
       c.taken = true; sfx.pickup();
       boom(c.x, c.y, '#ffd54a', 10);
-      const got = crates.filter(k => k.taken).length;
-      if (got >= NEED && !extraction.unlocked) {
-        extraction.unlocked = true;
-        beep(520, 0.3, 'sine', 0.09); setTimeout(()=>beep(780,0.4,'sine',0.09), 250);
-      }
+      checkUnlock();
     }
   }
   for (const wc of weaponCrates) {
@@ -1284,8 +1414,17 @@ function updateHud(){
     objEl.innerHTML = extraction.progress > 0
       ? `EXTRACTING… <b>${Math.ceil(4 - extraction.progress)}</b>`
       : 'REACH THE <b>EXTRACTION PAD</b> ↗';
-  } else objEl.innerHTML = `COLLECT SALVAGE <b>${got}/${NEED}</b>`;
+  } else {
+    const parts = [];
+    if (got < NEED) parts.push(`COLLECT SALVAGE <b>${got}/${NEED}</b>`);
+    if (MAPC.boss && !bossDead) parts.push('DESTROY <b>THE TITAN</b>');
+    objEl.innerHTML = parts.join(' · ') || `COLLECT SALVAGE <b>${got}/${NEED}</b>`;
+  }
   if (notice.t > 0) objEl.innerHTML = notice.text;
+  const bossOn = MAPC.boss && !bossDead && bossRef;
+  document.getElementById('bossBar').classList.toggle('hidden',
+    !(bossOn && ['play', 'inv', 'pause', 'dead'].includes(state)));
+  if (bossOn) document.getElementById('bossFill').style.width = (bossRef.hp / bossRef.maxHp * 100) + '%';
 }
 
 // ---------- render ----------
@@ -1522,10 +1661,24 @@ function render(){
     ctx.lineTo(b.x - b.vx*0.016, b.y - b.vy*0.016); ctx.stroke();
   }
   for (const b of ebullets) {
-    ctx.fillStyle = '#ff9a4a';
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = 'rgba(255,220,150,0.7)';
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r*0.45, 0, Math.PI*2); ctx.fill();
+    if (b.rocket) {
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(Math.atan2(b.vy, b.vx));
+      ctx.fillStyle = 'rgba(255,170,80,0.85)';                    // exhaust flame
+      ctx.beginPath(); ctx.arc(-10, 0, 3 + Math.random()*2.5, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#3a3d38';                                  // body
+      ctx.fillRect(-9, -3.5, 16, 7);
+      ctx.fillStyle = '#ff5a40';                                  // warhead
+      ctx.beginPath(); ctx.moveTo(7, -3.5); ctx.lineTo(13, 0); ctx.lineTo(7, 3.5);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#ff9a4a';
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,220,150,0.7)';
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r*0.45, 0, Math.PI*2); ctx.fill();
+    }
   }
   // particles
   for (const p of particles) {
@@ -1646,6 +1799,43 @@ function drawEnemy(e){
     ctx.fillStyle = alert ? '#ff4030' : '#c86820';
     ctx.beginPath(); ctx.arc(e.r*0.35, 0, 3.5, 0, Math.PI*2); ctx.fill();
   }
+  else if (e.kind === 'boss') { // THE TITAN
+    const gl = 0.6 + Math.sin(e.phase*4)*0.35;
+    // six stomping legs
+    ctx.strokeStyle = '#1d201a'; ctx.lineWidth = 11;
+    for (let i = 0; i < 6; i++) {
+      const a = (i/6)*Math.PI*2 + e.phase*0.35;
+      const st = Math.sin(e.phase*2.4 + i*1.7)*12;
+      ctx.beginPath(); ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(a)*(e.r+34+st), Math.sin(a)*(e.r+34+st)); ctx.stroke();
+    }
+    // armored hull
+    ctx.fillStyle = '#23261f';
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i/8)*Math.PI*2 + Math.PI/8;
+      i === 0 ? ctx.moveTo(Math.cos(a)*e.r, Math.sin(a)*e.r) : ctx.lineTo(Math.cos(a)*e.r, Math.sin(a)*e.r);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#343830';
+    ctx.beginPath(); ctx.arc(0, 0, e.r*0.7, 0, Math.PI*2); ctx.fill();
+    // rotating armor ring
+    ctx.strokeStyle = '#4a4e42'; ctx.lineWidth = 7; ctx.setLineDash([18, 12]);
+    ctx.save(); ctx.rotate(e.phase*0.6);
+    ctx.beginPath(); ctx.arc(0, 0, e.r*0.85, 0, Math.PI*2); ctx.stroke();
+    ctx.restore(); ctx.setLineDash([]);
+    // rocket pods tracking the player
+    ctx.fillStyle = '#2e322a';
+    ctx.save(); ctx.rotate(pa);
+    ctx.fillRect(e.r*0.2, -e.r*0.75, 26, 18);
+    ctx.fillRect(e.r*0.2, e.r*0.75 - 18, 26, 18);
+    ctx.restore();
+    // burning core
+    ctx.fillStyle = `rgba(255,60,40,${gl})`;
+    ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = `rgba(255,190,120,${gl*0.8})`;
+    ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI*2); ctx.fill();
+  }
   else { // strider
     ctx.strokeStyle = '#22251f'; ctx.lineWidth = 5;
     for (let i = 0; i < 3; i++) {
@@ -1742,6 +1932,11 @@ function drawMinimap(){
   for (const e of enemies) {
     if (e.alert <= 0) continue;
     ctx.beginPath(); ctx.arc(ox + e.x*s, oy + e.y*s, 1.8, 0, Math.PI*2); ctx.fill();
+  }
+  // the Titan looms on the map
+  if (bossRef && !bossDead) {
+    ctx.fillStyle = '#ff5040';
+    ctx.beginPath(); ctx.arc(ox + bossRef.x*s, oy + bossRef.y*s, 4.5, 0, Math.PI*2); ctx.fill();
   }
   // player
   ctx.fillStyle = '#fff';
