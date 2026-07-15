@@ -738,7 +738,7 @@ function newGame(){
 
 function makeBoss(x, y){
   return { kind: 'boss', x, y, r: 74, hp: 2600, maxHp: 2600, speed: 38, alert: 0,
-    hitCd: 0, rocketCd: 2.5, barrageCd: 4.5, ring: false, summoned: {},
+    hitCd: 0, rocketCd: 4, barrageCd: 6.5, ring: false, summoned: {},
     phase: rnd(0, 9), wx: x, wy: y, wt: 0 };
 }
 function makeTicker(x, y){ return { kind: 'ticker', x, y, r: 12, hp: 24, speed: rnd(115, 150) * MAPC.espd, alert: 0, hitCd: 0, phase: rnd(0, 9), wx: x, wy: y, wt: 0 }; }
@@ -766,7 +766,7 @@ function damagePlayer(dmg){
   if (player.hp <= 0) { player.hp = 0; die(); }
 }
 function fireRocket(e, a, homing){
-  const sp = homing ? 230 : 420;
+  const sp = homing ? 165 : 300;
   ebullets.push({ x: e.x + Math.cos(a)*(e.r + 12), y: e.y + Math.sin(a)*(e.r + 12),
     vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
     life: homing ? 5 : 3, r: 7, dmg: homing ? 24 : 32,
@@ -1251,14 +1251,14 @@ function update(dt){
         // homing missile volley
         e.rocketCd -= dt;
         if (e.rocketCd <= 0) {
-          e.rocketCd = 3.4;
+          e.rocketCd = 5.5;
           for (let i = -1.5; i <= 1.5; i++) fireRocket(e, pa + i*0.45, true);
           beep(120, 0.3, 'sawtooth', 0.08, 50);
         }
         // straight rockets: aimed pair, alternating with a full ring
         e.barrageCd -= dt;
         if (e.barrageCd <= 0) {
-          e.barrageCd = 5.8; e.ring = !e.ring;
+          e.barrageCd = 8.5; e.ring = !e.ring;
           if (e.ring) for (let i = 0; i < 10; i++) fireRocket(e, (i/10)*Math.PI*2, false);
           else { fireRocket(e, pa - 0.07, false); fireRocket(e, pa + 0.07, false); }
           beep(90, 0.4, 'sawtooth', 0.1, 40);
